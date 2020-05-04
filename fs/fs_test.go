@@ -16,6 +16,7 @@ package fs
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"io"
 	"io/ioutil"
 	"os"
@@ -37,6 +38,70 @@ type wantFile struct {
 	name    string
 	size    int64
 	err     error
+}
+
+func TestRegisterWithNamespace(t *testing.T) {
+	tests := []struct {
+		description string
+		assetName   string
+		zipData     string
+		condition   func() error
+	}{
+		{
+			description: "RegisterWithNamespace() should set zipData with assetName to be key",
+			assetName:   "file",
+			zipData:     "file test",
+			condition: func() error {
+				data, ok := zipData["file"]
+				if !ok {
+					return errors.New("fail to register zipData")
+				}
+				if data != "file test" {
+					return errors.New("fail to register zipData[\"file\"]")
+				}
+				return nil
+			},
+		},
+		{
+			description: "zipData[\"default\"] should be able to open by Open()",
+			assetName:   "default",
+			zipData:     mustZipTree("../testdata/file"),
+			condition: func() error {
+				fs, err := New()
+				if err != nil {
+					return err
+				}
+				if _, err := fs.Open("/file.txt"); err != nil {
+					return err
+				}
+				return nil
+			},
+		},
+		{
+			description: "zipData[\"foo\"] should be able to open by Open()",
+			assetName:   "foo",
+			zipData:     mustZipTree("../testdata/file"),
+			condition: func() error {
+				fs, err := NewWithNamespace("foo")
+				if err != nil {
+					return err
+				}
+				if _, err := fs.Open("/file.txt"); err != nil {
+					return err
+				}
+				return nil
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.description, func(t *testing.T) {
+			RegisterWithNamespace(tc.assetName, tc.zipData)
+			if err := tc.condition(); err != nil {
+				t.Error(err)
+			}
+		})
+		delete(zipData, tc.assetName)
+	}
 }
 
 func TestOpen(t *testing.T) {
@@ -380,23 +445,6 @@ func TestOpen_Parallel(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-}
-
-func BenchmarkOpen(b *testing.B) {
-	Register(mustZipTree("../testdata/index"))
-	fs, err := New()
-	if err != nil {
-		b.Fatalf("New() = %v", err)
-	}
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			name := "/index.html"
-			_, err := fs.Open(name)
-			if err != nil {
-				b.Errorf("fs.Open(%v) = %v", name, err)
-			}
-		}
-	})
 }
 
 // mustZipTree walks on the source path and returns the zipped file contents
